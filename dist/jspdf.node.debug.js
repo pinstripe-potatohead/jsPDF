@@ -2,8 +2,8 @@
 
 /** @license
  * jsPDF - PDF Document creation from JavaScript
- * Version 1.5.3 Built on 2018-12-27T14:11:50.068Z
- *                      CommitID d93d28db14
+ * Version 1.5.3 Built on 2019-03-19T22:07:46.248Z
+ *                      CommitID 626748511a
  *
  * Copyright (c) 2010-2016 James Hall <james@parall.ax>, https://github.com/MrRio/jsPDF
  *               2010 Aaron Spike, https://github.com/acspike
@@ -152,6 +152,7 @@ var jsPDF = function (global) {
     var options = {};
     var filters = [];
     var userUnit = 1.0;
+    var precision;
 
     if (_typeof(orientation) === 'object') {
       options = orientation;
@@ -161,6 +162,7 @@ var jsPDF = function (global) {
       compressPdf = options.compress || options.compressPdf || compressPdf;
       filters = options.filters || (compressPdf === true ? ['FlateEncode'] : filters);
       userUnit = typeof options.userUnit === "number" ? Math.abs(options.userUnit) : 1.0;
+      precision = options.precision;
     }
 
     unit = unit || 'mm';
@@ -235,18 +237,24 @@ var jsPDF = function (global) {
       return pageFormats[value];
     };
 
-    if (typeof format === "string") {
-      format = getPageFormat(format);
-    }
+    format = format || 'a4';
 
-    format = format || getPageFormat('a4');
+    var roundToPrecision = API.roundToPrecision = API.__private__.roundToPrecision = function (number, parmPrecision) {
+      var tmpPrecision = precision || parmPrecision;
+
+      if (isNaN(number) || isNaN(tmpPrecision)) {
+        throw new Error('Invalid argument passed to jsPDF.roundToPrecision');
+      }
+
+      return number.toFixed(tmpPrecision);
+    };
 
     var f2 = API.f2 = API.__private__.f2 = function (number) {
       if (isNaN(number)) {
         throw new Error('Invalid argument passed to jsPDF.f2');
       }
 
-      return number.toFixed(2); // Ie, %.2f
+      return roundToPrecision(number, 2);
     };
 
     var f3 = API.__private__.f3 = function (number) {
@@ -254,7 +262,7 @@ var jsPDF = function (global) {
         throw new Error('Invalid argument passed to jsPDF.f3');
       }
 
-      return number.toFixed(3); // Ie, %.3f
+      return roundToPrecision(number, 3);
     };
 
     var fileId = '00000000000000000000000000000000';
@@ -1298,30 +1306,28 @@ var jsPDF = function (global) {
       return to8bitStream(text, flags).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
     };
 
-    var beginPage = API.__private__.beginPage = function (width, height) {
-      var tmp; // Dimensions are stored as user units and converted to points on output
+    var beginPage = API.__private__.beginPage = function (parmFormat, parmOrientation) {
+      var tmp, width, height;
 
-      var orientation = typeof height === 'string' && height.toLowerCase();
-
-      if (typeof width === 'string') {
-        if (tmp = getPageFormat(width.toLowerCase())) {
+      if (typeof parmFormat === 'string') {
+        if (tmp = getPageFormat(parmFormat.toLowerCase())) {
           width = tmp[0];
           height = tmp[1];
         }
       }
 
-      if (Array.isArray(width)) {
-        height = width[1];
-        width = width[0];
+      if (Array.isArray(parmFormat)) {
+        width = parmFormat[0] * k;
+        height = parmFormat[1] * k;
       }
 
-      if (isNaN(width) || isNaN(height)) {
+      if (isNaN(width)) {
         width = format[0];
         height = format[1];
       }
 
-      if (orientation) {
-        switch (orientation.substr(0, 1)) {
+      if (parmOrientation) {
+        switch (parmOrientation.substr(0, 1)) {
           case 'l':
             if (height > width) orientation = 's';
             break;
@@ -1389,6 +1395,7 @@ var jsPDF = function (global) {
     var _deletePage = function _deletePage(n) {
       if (n > 0 && n <= page) {
         pages.splice(n, 1);
+        pagesContext.splice(n, 1);
         page--;
 
         if (currentPage > page) {
@@ -2079,15 +2086,6 @@ var jsPDF = function (global) {
 
       if (textIsOfTypeString === false) {
         throw new Error('Type of text must be string or Array. "' + text + '" is not recognized.');
-      } //Escaping 
-
-
-      var activeFontEncoding = fonts[activeFontKey].encoding;
-
-      if (activeFontEncoding === "WinAnsiEncoding" || activeFontEncoding === "StandardEncoding") {
-        text = processTextByFunction(text, function (text, posX, posY) {
-          return [ESC(text), posX, posY];
-        });
       } //If there are any newlines in text, we assume
       //the user wanted to print multiple lines, so break the
       //text up into an array. If the text is already an array,
@@ -2364,7 +2362,16 @@ var jsPDF = function (global) {
           activeFontSize: activeFontSize
         }
       };
-      events.publish('postProcessText', payload);
+      events.publish('postProcessText', payload); //Escaping 
+
+      var activeFontEncoding = fonts[activeFontKey].encoding;
+
+      if (activeFontEncoding === "WinAnsiEncoding" || activeFontEncoding === "StandardEncoding") {
+        text = processTextByFunction(text, function (text, posX, posY) {
+          return [ESC(text), posX, posY];
+        });
+      }
+
       text = payload.text;
       isHex = payload.mutex.isHex;
       var da = transformTextToSpecialArray(text);
@@ -6886,17 +6893,6 @@ window.tmp = jsPDF;
     return hash;
   };
   /**
-  * @name isString
-  * @function
-  * @param {any} object
-  * @returns {boolean} 
-  */
-
-
-  jsPDFAPI.isString = function (object) {
-    return typeof object === 'string';
-  };
-  /**
   * Validates if given String is a valid Base64-String
   *
   * @name validateStringAsBase64
@@ -7249,8 +7245,8 @@ window.tmp = jsPDF;
       if (notDefined(alias)) alias = generateAliasFromImageData(imageData);
 
       if (!(info = checkImagesForAlias(alias, images))) {
-        if (this.isString(imageData)) {
-          tmpImageData = this.convertStringToImageData(imageData);
+        if (typeof imageData === 'string') {
+          tmpImageData = this.convertStringToImageData(imageData, false);
 
           if (tmpImageData !== '') {
             imageData = tmpImageData;
@@ -7297,12 +7293,13 @@ window.tmp = jsPDF;
   */
 
 
-  jsPDFAPI.convertStringToImageData = function (stringData) {
+  jsPDFAPI.convertStringToImageData = function (stringData, throwError) {
+    throwError = typeof throwError === "boolean" ? throwError : true;
     var base64Info;
     var imageData = '';
     var rawData;
 
-    if (this.isString(stringData)) {
+    if (typeof stringData === 'string') {
       var base64Info = this.extractImageFromDataUrl(stringData);
       rawData = base64Info !== null ? base64Info.data : stringData;
 
@@ -7310,9 +7307,17 @@ window.tmp = jsPDF;
         imageData = atob(rawData);
       } catch (e) {
         if (!jsPDFAPI.validateStringAsBase64(rawData)) {
-          throw new Error('Supplied Data is not a valid base64-String jsPDF.convertStringToImageData ');
+          if (throwError) {
+            throw new Error('Supplied Data is not a valid base64-String jsPDF.convertStringToImageData ');
+          } else {
+            console.log('Supplied Data is not a valid base64-String jsPDF.convertStringToImageData ');
+          }
         } else {
-          throw new Error('atob-Error in jsPDF.convertStringToImageData ' + e.message);
+          if (throwError) {
+            throw new Error('atob-Error in jsPDF.convertStringToImageData ' + e.message);
+          } else {
+            console.log('atob-Error in jsPDF.convertStringToImageData ' + e.message);
+          }
         }
       }
     }
@@ -7411,11 +7416,11 @@ window.tmp = jsPDF;
         bpc = 8,
         dims;
 
-    if (!this.isString(data) && !this.isArrayBuffer(data) && !this.isArrayBufferView(data)) {
+    if (!(typeof data === 'string') && !this.isArrayBuffer(data) && !this.isArrayBufferView(data)) {
       return null;
     }
 
-    if (this.isString(data)) {
+    if (typeof data === 'string') {
       dims = getJpegSize(data);
     }
 
@@ -7475,18 +7480,14 @@ window.tmp = jsPDF;
       imageData = createDataURIFromElement(imageData);
     }
 
-    if (this.isString(imageData)) {
-      tmpImageData = this.convertStringToImageData(imageData);
+    if (typeof imageData === "string") {
+      tmpImageData = this.convertStringToImageData(imageData, false);
 
-      if (tmpImageData !== '') {
-        imageData = tmpImageData;
-      } else {
-        tmpImageData = jsPDFAPI.loadFile(imageData);
-
-        if (tmpImageData !== undefined) {
-          imageData = tmpImageData;
-        }
+      if (tmpImageData === '') {
+        tmpImageData = jsPDFAPI.loadFile(imageData) || '';
       }
+
+      imageData = tmpImageData;
     }
 
     format = this.getImageFileTypeByImageData(imageData);
@@ -8244,8 +8245,7 @@ window.tmp = jsPDF;
 */
 (function (jsPDFAPI) {
   /**
-  * Makes the PDF automatically print. This works in Chrome, Firefox, Acrobat
-  * Reader.
+  * Makes the PDF automatically open the print-Dialog when opened in a PDF-viewer.
   *
   * @name autoPrint
   * @function
@@ -14974,9 +14974,11 @@ window.tmp = jsPDF;
         range = [];
       }
 
-      unicode = ('0000' + map[code].toString(16)).slice(-4);
-      code = ('0000' + (+code).toString(16)).slice(-4);
-      range.push("<" + code + "><" + unicode + ">");
+      if (map[code] !== undefined && map[code] !== null && typeof map[code].toString === "function") {
+        unicode = ('0000' + map[code].toString(16)).slice(-4);
+        code = ('0000' + (+code).toString(16)).slice(-4);
+        range.push("<" + code + "><" + unicode + ">");
+      }
     }
 
     if (range.length) {
@@ -21496,10 +21498,9 @@ window.tmp = BmpDecoder;
 // Generated by CoffeeScript 1.4.0
 
 /*
-# PNG.js
-# Copyright (c) 2011 Devon Govett
 # MIT LICENSE
-# 
+# Copyright (c) 2011 Devon Govett
+#
 # 
 */
 (function (global) {
@@ -21511,7 +21512,7 @@ window.tmp = BmpDecoder;
     PNG.load = function (url, canvas, callback) {
       var xhr;
 
-      if (typeof canvas === 'function') {
+      if (typeof canvas === "function") {
         callback = canvas;
       }
 
@@ -21524,7 +21525,7 @@ window.tmp = BmpDecoder;
         data = new Uint8Array(xhr.response || xhr.mozResponseArrayBuffer);
         png = new PNG(data);
 
-        if (typeof (canvas != null ? canvas.getContext : void 0) === 'function') {
+        if (typeof (canvas != null ? canvas.getContext : void 0) === "function") {
           png.render(canvas);
         }
 
@@ -21538,7 +21539,7 @@ window.tmp = BmpDecoder;
     APNG_BLEND_OP_SOURCE = 0;
 
     function PNG(data) {
-      var chunkSize, colors, palLen, delayDen, delayNum, frame, i, index, key, section, palShort, text, _i, _j, _ref;
+      var chunkSize, colors, delayDen, delayNum, frame, i, index, key, section, short, text, _i, _j, _ref;
 
       this.data = data;
       this.pos = 8;
@@ -21562,10 +21563,10 @@ window.tmp = BmpDecoder;
           }
 
           return _results;
-        }.call(this).join('');
+        }.call(this).join("");
 
         switch (section) {
-          case 'IHDR':
+          case "IHDR":
             this.width = this.readUInt32();
             this.height = this.readUInt32();
             this.bits = this.data[this.pos++];
@@ -21575,7 +21576,7 @@ window.tmp = BmpDecoder;
             this.interlaceMethod = this.data[this.pos++];
             break;
 
-          case 'acTL':
+          case "acTL":
             this.animation = {
               numFrames: this.readUInt32(),
               numPlays: this.readUInt32() || Infinity,
@@ -21583,11 +21584,11 @@ window.tmp = BmpDecoder;
             };
             break;
 
-          case 'PLTE':
+          case "PLTE":
             this.palette = this.read(chunkSize);
             break;
 
-          case 'fcTL':
+          case "fcTL":
             if (frame) {
               this.animation.frames.push(frame);
             }
@@ -21607,9 +21608,9 @@ window.tmp = BmpDecoder;
             frame.data = [];
             break;
 
-          case 'IDAT':
-          case 'fdAT':
-            if (section === 'fdAT') {
+          case "IDAT":
+          case "fdAT":
+            if (section === "fdAT") {
               this.pos += 4;
               chunkSize -= 4;
             }
@@ -21622,23 +21623,16 @@ window.tmp = BmpDecoder;
 
             break;
 
-          case 'tRNS':
+          case "tRNS":
             this.transparency = {};
 
             switch (this.colorType) {
               case 3:
-                palLen = this.palette.length / 3;
                 this.transparency.indexed = this.read(chunkSize);
-                if (this.transparency.indexed.length > palLen) throw new Error('More transparent colors than palette size');
-                /*
-                 * According to the PNG spec trns should be increased to the same size as palette if shorter
-                 */
-                //palShort = 255 - this.transparency.indexed.length;
+                short = 255 - this.transparency.indexed.length;
 
-                palShort = palLen - this.transparency.indexed.length;
-
-                if (palShort > 0) {
-                  for (i = _j = 0; 0 <= palShort ? _j < palShort : _j > palShort; i = 0 <= palShort ? ++_j : --_j) {
+                if (short > 0) {
+                  for (i = _j = 0; 0 <= short ? _j < short : _j > short; i = 0 <= short ? ++_j : --_j) {
                     this.transparency.indexed.push(255);
                   }
                 }
@@ -21655,14 +21649,14 @@ window.tmp = BmpDecoder;
 
             break;
 
-          case 'tEXt':
+          case "tEXt":
             text = this.read(chunkSize);
             index = text.indexOf(0);
             key = String.fromCharCode.apply(String, text.slice(0, index));
             this.text[key] = String.fromCharCode.apply(String, text.slice(index + 1));
             break;
 
-          case 'IEND':
+          case "IEND":
             if (frame) {
               this.animation.frames.push(frame);
             }
@@ -21687,10 +21681,10 @@ window.tmp = BmpDecoder;
             this.colorSpace = function () {
               switch (this.colors) {
                 case 1:
-                  return 'DeviceGray';
+                  return "DeviceGray";
 
                 case 3:
-                  return 'DeviceRGB';
+                  return "DeviceRGB";
               }
             }.call(this);
 
@@ -21740,11 +21734,7 @@ window.tmp = BmpDecoder;
     };
 
     PNG.prototype.decodePixels = function (data) {
-      var pixelBytes = this.pixelBitlength / 8;
-      var fullPixels = new Uint8Array(this.width * this.height * pixelBytes);
-      var pos = 0;
-
-      var _this = this;
+      var byte, c, col, i, left, length, p, pa, paeth, pb, pc, pixelBytes, pixels, pos, row, scanlineLength, upper, upperLeft, _i, _j, _k, _l, _m;
 
       if (data == null) {
         data = this.imgData;
@@ -21756,145 +21746,92 @@ window.tmp = BmpDecoder;
 
       data = new FlateStream(data);
       data = data.getBytes();
+      pixelBytes = this.pixelBitlength / 8;
+      scanlineLength = pixelBytes * this.width;
+      pixels = new Uint8Array(scanlineLength * this.height);
+      length = data.length;
+      row = 0;
+      pos = 0;
+      c = 0;
 
-      function pass(x0, y0, dx, dy) {
-        var abyte, c, col, i, left, length, p, pa, paeth, pb, pc, pixels, row, scanlineLength, upper, upperLeft, _i, _j, _k, _l, _m;
-
-        var w = Math.ceil((_this.width - x0) / dx),
-            h = Math.ceil((_this.height - y0) / dy);
-        var isFull = _this.width == w && _this.height == h;
-        scanlineLength = pixelBytes * w;
-        pixels = isFull ? fullPixels : new Uint8Array(scanlineLength * h);
-        length = data.length;
-        row = 0;
-        c = 0;
-
-        while (row < h && pos < length) {
-          switch (data[pos++]) {
-            case 0:
-              for (i = _i = 0; _i < scanlineLength; i = _i += 1) {
-                pixels[c++] = data[pos++];
-              }
-
-              break;
-
-            case 1:
-              for (i = _j = 0; _j < scanlineLength; i = _j += 1) {
-                abyte = data[pos++];
-                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
-                pixels[c++] = (abyte + left) % 256;
-              }
-
-              break;
-
-            case 2:
-              for (i = _k = 0; _k < scanlineLength; i = _k += 1) {
-                abyte = data[pos++];
-                col = (i - i % pixelBytes) / pixelBytes;
-                upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + i % pixelBytes];
-                pixels[c++] = (upper + abyte) % 256;
-              }
-
-              break;
-
-            case 3:
-              for (i = _l = 0; _l < scanlineLength; i = _l += 1) {
-                abyte = data[pos++];
-                col = (i - i % pixelBytes) / pixelBytes;
-                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
-                upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + i % pixelBytes];
-                pixels[c++] = (abyte + Math.floor((left + upper) / 2)) % 256;
-              }
-
-              break;
-
-            case 4:
-              for (i = _m = 0; _m < scanlineLength; i = _m += 1) {
-                abyte = data[pos++];
-                col = (i - i % pixelBytes) / pixelBytes;
-                left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
-
-                if (row === 0) {
-                  upper = upperLeft = 0;
-                } else {
-                  upper = pixels[(row - 1) * scanlineLength + col * pixelBytes + i % pixelBytes];
-                  upperLeft = col && pixels[(row - 1) * scanlineLength + (col - 1) * pixelBytes + i % pixelBytes];
-                }
-
-                p = left + upper - upperLeft;
-                pa = Math.abs(p - left);
-                pb = Math.abs(p - upper);
-                pc = Math.abs(p - upperLeft);
-
-                if (pa <= pb && pa <= pc) {
-                  paeth = left;
-                } else if (pb <= pc) {
-                  paeth = upper;
-                } else {
-                  paeth = upperLeft;
-                }
-
-                pixels[c++] = (abyte + paeth) % 256;
-              }
-
-              break;
-
-            default:
-              throw new Error("Invalid filter algorithm: " + data[pos - 1]);
-          }
-
-          if (!isFull) {
-            var fullPos = ((y0 + row * dy) * _this.width + x0) * pixelBytes;
-            var partPos = row * scanlineLength;
-
-            for (i = 0; i < w; i += 1) {
-              for (var j = 0; j < pixelBytes; j += 1) {
-                fullPixels[fullPos++] = pixels[partPos++];
-              }
-
-              fullPos += (dx - 1) * pixelBytes;
+      while (pos < length) {
+        switch (data[pos++]) {
+          case 0:
+            for (i = _i = 0; _i < scanlineLength; i = _i += 1) {
+              pixels[c++] = data[pos++];
             }
-          }
 
-          row++;
+            break;
+
+          case 1:
+            for (i = _j = 0; _j < scanlineLength; i = _j += 1) {
+              byte = data[pos++];
+              left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
+              pixels[c++] = (byte + left) % 256;
+            }
+
+            break;
+
+          case 2:
+            for (i = _k = 0; _k < scanlineLength; i = _k += 1) {
+              byte = data[pos++];
+              col = (i - i % pixelBytes) / pixelBytes;
+              upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + i % pixelBytes];
+              pixels[c++] = (upper + byte) % 256;
+            }
+
+            break;
+
+          case 3:
+            for (i = _l = 0; _l < scanlineLength; i = _l += 1) {
+              byte = data[pos++];
+              col = (i - i % pixelBytes) / pixelBytes;
+              left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
+              upper = row && pixels[(row - 1) * scanlineLength + col * pixelBytes + i % pixelBytes];
+              pixels[c++] = (byte + Math.floor((left + upper) / 2)) % 256;
+            }
+
+            break;
+
+          case 4:
+            for (i = _m = 0; _m < scanlineLength; i = _m += 1) {
+              byte = data[pos++];
+              col = (i - i % pixelBytes) / pixelBytes;
+              left = i < pixelBytes ? 0 : pixels[c - pixelBytes];
+
+              if (row === 0) {
+                upper = upperLeft = 0;
+              } else {
+                upper = pixels[(row - 1) * scanlineLength + col * pixelBytes + i % pixelBytes];
+                upperLeft = col && pixels[(row - 1) * scanlineLength + (col - 1) * pixelBytes + i % pixelBytes];
+              }
+
+              p = left + upper - upperLeft;
+              pa = Math.abs(p - left);
+              pb = Math.abs(p - upper);
+              pc = Math.abs(p - upperLeft);
+
+              if (pa <= pb && pa <= pc) {
+                paeth = left;
+              } else if (pb <= pc) {
+                paeth = upper;
+              } else {
+                paeth = upperLeft;
+              }
+
+              pixels[c++] = (byte + paeth) % 256;
+            }
+
+            break;
+
+          default:
+            throw new Error("Invalid filter algorithm: " + data[pos - 1]);
         }
+
+        row++;
       }
 
-      if (_this.interlaceMethod == 1) {
-        /*
-          1 6 4 6 2 6 4 6
-          7 7 7 7 7 7 7 7
-          5 6 5 6 5 6 5 6
-          7 7 7 7 7 7 7 7
-          3 6 4 6 3 6 4 6
-          7 7 7 7 7 7 7 7
-          5 6 5 6 5 6 5 6
-          7 7 7 7 7 7 7 7
-        */
-        pass(0, 0, 8, 8); // 1
-
-        /* NOTE these seem to follow the pattern:
-         * pass(x, 0, 2*x, 2*x);
-         * pass(0, x,   x, 2*x);
-         * with x being 4, 2, 1.
-         */
-
-        pass(4, 0, 8, 8); // 2
-
-        pass(0, 4, 4, 8); // 3
-
-        pass(2, 0, 4, 4); // 4
-
-        pass(0, 2, 2, 4); // 5
-
-        pass(1, 0, 2, 2); // 6
-
-        pass(0, 1, 1, 2); // 7
-      } else {
-        pass(0, 0, 1, 1);
-      }
-
-      return fullPixels;
+      return pixels;
     };
 
     PNG.prototype.decodePalette = function () {
@@ -21964,23 +21901,21 @@ window.tmp = BmpDecoder;
       return ret;
     };
 
-    try {
-      scratchCanvas = global.document.createElement('canvas');
-      scratchCtx = scratchCanvas.getContext('2d');
-    } catch (e) {
-      return -1;
-    }
+    if (typeof document !== "undefined") {
+      scratchCanvas = document.createElement("canvas");
+      scratchCtx = scratchCanvas.getContext("2d");
 
-    makeImage = function makeImage(imageData) {
-      var img;
-      scratchCtx.width = imageData.width;
-      scratchCtx.height = imageData.height;
-      scratchCtx.clearRect(0, 0, imageData.width, imageData.height);
-      scratchCtx.putImageData(imageData, 0, 0);
-      img = new Image();
-      img.src = scratchCanvas.toDataURL();
-      return img;
-    };
+      makeImage = function makeImage(imageData) {
+        var img;
+        scratchCtx.width = imageData.width;
+        scratchCtx.height = imageData.height;
+        scratchCtx.clearRect(0, 0, imageData.width, imageData.height);
+        scratchCtx.putImageData(imageData, 0, 0);
+        img = new Image();
+        img.src = scratchCanvas.toDataURL();
+        return img;
+      };
+    }
 
     PNG.prototype.decodeFrames = function (ctx) {
       var frame, i, imageData, pixels, _i, _len, _ref, _results;
@@ -22084,9 +22019,7 @@ window.tmp = BmpDecoder;
   }();
 
   global.PNG = PNG;
-})(typeof self !== "undefined" && self || typeof window !== "undefined" && window || typeof global !== "undefined" && global || Function('return typeof this === "object" && this.content')() || Function('return this')()); // `self` is undefined in Firefox for Android content script context
-// while `this` is nsIContentFrameMessageManager
-// with an attribute `content` that corresponds to the window
+})(typeof self !== "undefined" && self || typeof window !== "undefined" && window || typeof global !== "undefined" && global || Function('return typeof this === "object" && this.content')() || Function("return this")());
 
 /*
  * Extracted from pdf.js
